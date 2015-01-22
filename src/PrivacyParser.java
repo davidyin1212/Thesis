@@ -9,12 +9,7 @@ import edu.stanford.nlp.stats.Counter;
 import edu.stanford.nlp.util.CoreMap;
 import edu.stanford.nlp.util.PropertiesUtils;
 
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.PrintWriter;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -26,11 +21,13 @@ public class PrivacyParser {
 	private Properties prop;
 	private StanfordCoreNLP pipeline;
 	private HashMap<String, Float> weightsTable = new HashMap<String, Float>();
+	private final float THRESHOLD = 2.5f;
 	
 	public PrivacyParser() {
 		weightsTable.put("information", 1f);
 		weightsTable.put("collect", 1.5f);
-		
+		weightsTable.put("collection", 1.5f);
+
 		prop = new Properties();
 		prop.setProperty("annotators", "tokenize,ssplit,pos,lemma");
 		this.pipeline = new StanfordCoreNLP(prop);
@@ -41,25 +38,51 @@ public class PrivacyParser {
 		for (CoreMap sentence : sentences) {
 			float total = 0;
 			for (CoreLabel cl : sentence.get(CoreAnnotations.TokensAnnotation.class)) {
-		        if (weightsTable.containsKey(cl.getString(CoreAnnotations.LemmaAnnotation.class))) {
-		        	total += weightsTable.get(cl.getString(CoreAnnotations.LemmaAnnotation.class));
+		        if (weightsTable.containsKey(cl.getString(CoreAnnotations.LemmaAnnotation.class).toLowerCase())) {
+		        	total += weightsTable.get(cl.getString(CoreAnnotations.LemmaAnnotation.class).toLowerCase());
 		        }
 			}
 			result.add(total);
 		}
 		return result;
 	}
+
+	public List<Float> generatePositionWeights (List<Float> weightedList, float threshold) {
+		for (int i = 0; i < weightedList.size(); i++) {
+			if (weightedList.get(i).floatValue() >= threshold) {
+				weightedList.set(i + 1, weightedList.get(i+1) + 0.5f);
+			}
+		}
+		return weightedList;
+	}
 	
-	public String summarize(String document) throws FileNotFoundException, UnsupportedEncodingException {
+	public String summarize(String document) throws IOException {
 	    Annotation annotation = pipeline.process(document);
 	    List<CoreMap> sentences = annotation.get(CoreAnnotations.SentencesAnnotation.class);
 	    
 	    List<Float> weightedList = generateWeightedList(sentences);
-	    PrintWriter writer = new PrintWriter("output.txt", "UTF-8");
-	    for (Float weight : weightedList) {
-	    	System.out.println(weight);
-	    }
-	    writer.close();
+		List<Float> postionalyWeightedList = generatePositionWeights(weightedList, THRESHOLD);
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < postionalyWeightedList.size(); i++) {
+			if (postionalyWeightedList.get(i).floatValue() >= THRESHOLD) {
+				sb.append(i);
+				sb.append(sentences.get(i).toString());
+				sb.append("\n");
+			}
+		}
+		File file = new File("final_output.txt");
+		// if file doesnt exists, then create it
+		if (!file.exists()) {
+			file.createNewFile();
+		}
+		FileWriter fw = new FileWriter(file.getAbsoluteFile());
+		BufferedWriter bw = new BufferedWriter(fw);
+
+//	    for (int i = 0; i < weightedList.size(); i++) {
+//			bw.write(weightedList.get(i).toString() + " " + sentences.get(i).toString() + "\n");
+//		}
+		bw.write(sb.toString());
+		bw.close();
 	    return null;
 	  }
 	
